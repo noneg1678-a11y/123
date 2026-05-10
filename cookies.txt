@@ -1,0 +1,12 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.whoreshub.com	TRUE	/	FALSE	0	PHPSESSID	7cc9e8407af6245090ee7dd6caadc787
+.whoreshub.com	TRUE	/	FALSE	1812935193	_ga	GA1.1.9374290.1778371799
+whoreshub.com	FALSE	/	FALSE	1778979938	kt_tcookie	1
+whoreshub.com	FALSE	/	FALSE	1778977030	confirmed	true
+.whoreshub.com	TRUE	/	FALSE	1778458882	kt_acctoken	MTA3LjE3OC4xOTMuMiwxMDcuMTc4LjE5My40LDEwNy4xNzguMTkzLjM
+whoreshub.com	FALSE	/	FALSE	1778396708	___trx2	{"time":1778375108,"pageViews":7,"shown":false}
+whoreshub.com	FALSE	/	FALSE	1778396708	___trx3	{"time":1778375108,"pageViews":7,"shown":false}
+.whoreshub.com	TRUE	/	FALSE	1812935281	_ga_8HLGY01114	GS2.1.s1778371799$o1$g1$t1778375281$j60$l0$h0
