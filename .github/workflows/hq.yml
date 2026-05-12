@@ -1,95 +1,106 @@
-name: dl2
+name: Download Video to Repository
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'Enter video page URL'
+        description: 'لینک صفحه ویدیو (مثل hqporner.com/...)'
         required: true
+        type: string
       quality:
-        description: 'Video quality'
+        description: 'کیفیت ویدیو'
         required: false
         default: '1080'
         type: choice
         options:
-          - '480'
-          - '720'
           - '1080'
+          - '720'
+          - '480'
           - 'best'
 
 jobs:
   download:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # اجازه آپلود در ریپو
+    
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-
-      - name: Install dependencies
+      
+      - name: Install yt-dlp
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg aria2
           pip install yt-dlp
-
+      
       - name: Download video
         id: download
         run: |
-          # ساخت پوشه برای فایل نهایی
-          mkdir -p downloads
+          # پوشه برای ذخیره ویدیوها
+          mkdir -p videos
           
           # تنظیم کیفیت
           if [ "${{ github.event.inputs.quality }}" = "1080" ]; then
-            QUALITY="bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]/best"
+            QUALITY="best[height<=1080]"
           elif [ "${{ github.event.inputs.quality }}" = "720" ]; then
-            QUALITY="bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/best"
+            QUALITY="best[height<=720]"
           elif [ "${{ github.event.inputs.quality }}" = "480" ]; then
-            QUALITY="bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/best"
+            QUALITY="best[height<=480]"
           else
-            QUALITY="bestvideo+bestaudio/best"
+            QUALITY="best"
           fi
           
-          # دانلود با هدرهای مخصوص hqporner
+          # دانلود ویدیو
           yt-dlp \
             --no-check-certificate \
             --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             --add-header "Referer: https://hqporner.com/" \
-            --add-header "Origin: https://hqporner.com" \
-            --add-header "Accept-Language: en-US,en;q=0.9" \
             --retries 10 \
-            --fragment-retries 10 \
             -f "$QUALITY" \
-            --merge-output-format mp4 \
-            --external-downloader aria2c \
-            --external-downloader-args "-x 16 -s 16 -k 5M" \
-            -N 16 \
-            -o "downloads/%(title)s.%(ext)s" \
+            -o "videos/%(title)s.%(ext)s" \
             "${{ github.event.inputs.url }}"
           
-          # پیدا کردن فایل دانلود شده
-          VIDEO_FILE=$(ls downloads/*.mp4 2>/dev/null | head -n1)
+          # پیدا کردن اسم فایل دانلود شده
+          VIDEO_FILE=$(ls videos/*.mp4 2>/dev/null | head -n1)
           if [ -z "$VIDEO_FILE" ]; then
-            VIDEO_FILE=$(ls downloads/*.mkv 2>/dev/null | head -n1)
-          fi
-          
-          if [ -z "$VIDEO_FILE" ]; then
-            echo "Download failed!"
-            exit 1
+            VIDEO_FILE=$(ls videos/*.mkv 2>/dev/null | head -n1)
           fi
           
           echo "VIDEO_PATH=$VIDEO_FILE" >> $GITHUB_OUTPUT
-          echo "Downloaded: $VIDEO_FILE"
-
-      - name: Commit and push to repository
+          echo "✅ ویدیو دانلود شد: $VIDEO_FILE"
+      
+      - name: Upload to repository
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "actions@github.com"
           
-          # اضافه کردن فایل به گیت
-          git add downloads/
+          # اضافه کردن فایل به git
+          git add videos/
           
-          # commit کردن (اگه فایل جدید باشه)
-          git commit -m "Add downloaded video [skip ci]" || echo "No changes to commit"
+          # commit کردن
+          git commit -m "🎬 Add downloaded video [skip ci]" || echo "هیچ تغییری نداریم"
           
-          # push به ریپازیتوری
-          git pull --rebase origin ${{ github.ref_name }} || true
-          git push origin ${{ github.ref_name }}
+          # آپلود به ریپو
+          git push origin HEAD:${{ github.ref_name }}
+          
+          echo "✅ فایل در ریپازیتوری آپلود شد"
+      
+      - name: Show download link
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ دانلود کامل شد!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "🔗 برای دانلود فایل در کامپیوترت:"
+          echo ""
+          echo "روش 1 - استفاده از git:"
+          echo "  git pull origin ${{ github.ref_name }}"
+          echo ""
+          echo "روش 2 - دانلود مستقیم از گیت‌هاب:"
+          echo "  https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/videos/[اسم_فایل].mp4"
+          echo ""
+          echo "روش 3 - دانلود با raw:"
+          ls -1 videos/ | while read file; do
+            echo "  https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/videos/$file"
+          done
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
