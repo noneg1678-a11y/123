@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک صفحه ویدیو (مثل hqporner.com/...)'
+        description: 'لینک صفحه ویدیو'
         required: true
         type: string
       quality:
-        description: 'کیفیت ویدیو'
+        description: 'کیفیت'
         required: false
         default: '1080'
         type: choice
@@ -16,91 +16,57 @@ on:
           - '1080'
           - '720'
           - '480'
-          - 'best'
 
 jobs:
   download:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # اجازه آپلود در ریپو
+      contents: write
     
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install yt-dlp
+      - name: Install gallery-dl
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg aria2
-          pip install yt-dlp
+          pip install gallery-dl
+          sudo apt-get install -y ffmpeg
       
-      - name: Download video
+      - name: Download with gallery-dl
         id: download
         run: |
-          # پوشه برای ذخیره ویدیوها
           mkdir -p videos
           
-          # تنظیم کیفیت
-          if [ "${{ github.event.inputs.quality }}" = "1080" ]; then
-            QUALITY="best[height<=1080]"
-          elif [ "${{ github.event.inputs.quality }}" = "720" ]; then
-            QUALITY="best[height<=720]"
-          elif [ "${{ github.event.inputs.quality }}" = "480" ]; then
-            QUALITY="best[height<=480]"
-          else
-            QUALITY="best"
-          fi
-          
-          # دانلود ویدیو
-          yt-dlp \
-            --no-check-certificate \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --add-header "Referer: https://hqporner.com/" \
-            --retries 10 \
-            -f "$QUALITY" \
-            -o "videos/%(title)s.%(ext)s" \
+          # دانلود با gallery-dl (مخصوص این سایته!)
+          gallery-dl \
+            --verbose \
+            --dest "videos" \
+            --filename "{title}.{extension}" \
+            --option "video-quality=${{ github.event.inputs.quality }}" \
             "${{ github.event.inputs.url }}"
           
-          # پیدا کردن اسم فایل دانلود شده
+          ls -la videos/
+          
+          # پیدا کردن فایل
           VIDEO_FILE=$(ls videos/*.mp4 2>/dev/null | head -n1)
           if [ -z "$VIDEO_FILE" ]; then
             VIDEO_FILE=$(ls videos/*.mkv 2>/dev/null | head -n1)
           fi
           
+          if [ -z "$VIDEO_FILE" ]; then
+            echo "❌ دانلود موفق نبود"
+            exit 1
+          fi
+          
           echo "VIDEO_PATH=$VIDEO_FILE" >> $GITHUB_OUTPUT
-          echo "✅ ویدیو دانلود شد: $VIDEO_FILE"
+          echo "✅ دانلود شد: $VIDEO_FILE"
       
       - name: Upload to repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           
-          # اضافه کردن فایل به git
           git add videos/
-          
-          # commit کردن
-          git commit -m "🎬 Add downloaded video [skip ci]" || echo "هیچ تغییری نداریم"
-          
-          # آپلود به ریپو
+          git commit -m "🎬 Add downloaded video" || echo "No changes"
           git push origin HEAD:${{ github.ref_name }}
           
-          echo "✅ فایل در ریپازیتوری آپلود شد"
-      
-      - name: Show download link
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ دانلود کامل شد!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "🔗 برای دانلود فایل در کامپیوترت:"
-          echo ""
-          echo "روش 1 - استفاده از git:"
-          echo "  git pull origin ${{ github.ref_name }}"
-          echo ""
-          echo "روش 2 - دانلود مستقیم از گیت‌هاب:"
-          echo "  https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/videos/[اسم_فایل].mp4"
-          echo ""
-          echo "روش 3 - دانلود با raw:"
-          ls -1 videos/ | while read file; do
-            echo "  https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/videos/$file"
-          done
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ آپلود شد!"
