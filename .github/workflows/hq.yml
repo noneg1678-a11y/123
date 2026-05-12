@@ -1,12 +1,11 @@
-name: Download Video to Repository
+name: Download Video with hqporner-api
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک صفحه ویدیو'
+        description: 'لینک ویدیو از hqporner.com'
         required: true
-        type: string
       quality:
         description: 'کیفیت'
         required: false
@@ -16,6 +15,7 @@ on:
           - '1080'
           - '720'
           - '480'
+          - 'best'
 
 jobs:
   download:
@@ -26,47 +26,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install gallery-dl
+      - name: Setup Python and install hqporner-api
         run: |
-          pip install gallery-dl
-          sudo apt-get install -y ffmpeg
+          pip install hqporner-api
       
-      - name: Download with gallery-dl
-        id: download
+      - name: Download with hqporner-api
         run: |
-          mkdir -p videos
+          python3 << EOF
+          from hqporner_api.api import Client, Quality
+          import os
           
-          # دانلود با gallery-dl (مخصوص این سایته!)
-          gallery-dl \
-            --verbose \
-            --dest "videos" \
-            --filename "{title}.{extension}" \
-            --option "video-quality=${{ github.event.inputs.quality }}" \
-            "${{ github.event.inputs.url }}"
+          # ایجاد پوشه videos
+          os.makedirs("videos", exist_ok=True)
           
+          # انتخاب کیفیت
+          quality_map = {
+              "1080": Quality._1080,
+              "720": Quality._720,
+              "480": Quality._480,
+              "best": Quality.BEST
+          }
+          
+          quality = quality_map.get("${{ github.event.inputs.quality }}", Quality._1080)
+          
+          # دانلود
+          client = Client()
+          video = client.get_video("${{ github.event.inputs.url }}")
+          video.download(quality=quality, output_path="videos/")
+          
+          print("✅ دانلود با موفقیت انجام شد")
+          EOF
+      
+      - name: List downloaded files
+        id: files
+        run: |
           ls -la videos/
-          
-          # پیدا کردن فایل
-          VIDEO_FILE=$(ls videos/*.mp4 2>/dev/null | head -n1)
-          if [ -z "$VIDEO_FILE" ]; then
-            VIDEO_FILE=$(ls videos/*.mkv 2>/dev/null | head -n1)
-          fi
-          
-          if [ -z "$VIDEO_FILE" ]; then
-            echo "❌ دانلود موفق نبود"
-            exit 1
-          fi
-          
-          echo "VIDEO_PATH=$VIDEO_FILE" >> $GITHUB_OUTPUT
-          echo "✅ دانلود شد: $VIDEO_FILE"
+          echo "DOWNLOADED_FILES=$(ls videos/ | wc -l)" >> $GITHUB_OUTPUT
       
-      - name: Upload to repository
+      - name: Commit and push to repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           
           git add videos/
-          git commit -m "🎬 Add downloaded video" || echo "No changes"
+          git commit -m "🎬 Add downloaded video from hqporner [skip ci]" || echo "No new files to commit"
           git push origin HEAD:${{ github.ref_name }}
           
-          echo "✅ آپلود شد!"
+          echo "✅ فایل در ریپازیتوری ذخیره شد"
