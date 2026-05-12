@@ -1,4 +1,4 @@
-name: Download Video with hqporner-api
+name: Download Video from HQPorner
 
 on:
   workflow_dispatch:
@@ -7,15 +7,9 @@ on:
         description: 'لینک ویدیو از hqporner.com'
         required: true
       quality:
-        description: 'کیفیت'
+        description: 'کیفیت (480, 720, 1080)'
         required: false
         default: '1080'
-        type: choice
-        options:
-          - '1080'
-          - '720'
-          - '480'
-          - 'best'
 
 jobs:
   download:
@@ -26,50 +20,94 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Python and install hqporner-api
+      - name: Install dependencies
         run: |
-          pip install hqporner-api
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg wget
+          pip install requests beautifulsoup4
       
-      - name: Download with hqporner-api
+      - name: Extract and download video
         run: |
           python3 << EOF
-          from hqporner_api.api import Client, Quality
+          import requests
+          import re
+          import subprocess
           import os
+          from bs4 import BeautifulSoup
           
-          # ایجاد پوشه videos
-          os.makedirs("videos", exist_ok=True)
+          url = "${{ github.event.inputs.url }}"
+          quality = "${{ github.event.inputs.quality }}"
           
-          # انتخاب کیفیت
-          quality_map = {
-              "1080": Quality._1080,
-              "720": Quality._720,
-              "480": Quality._480,
-              "best": Quality.BEST
+          # دریافت محتوای صفحه
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Referer': 'https://hqporner.com/'
           }
           
-          quality = quality_map.get("${{ github.event.inputs.quality }}", Quality._1080)
+          response = requests.get(url, headers=headers)
+          soup = BeautifulSoup(response.text, 'html.parser')
           
-          # دانلود
-          client = Client()
-          video = client.get_video("${{ github.event.inputs.url }}")
-          video.download(quality=quality, output_path="videos/")
+          # جستجوی لینک ویدیو در صفحه (الگوهای مختلف)
+          video_url = None
           
-          print("✅ دانلود با موفقیت انجام شد")
+          # روش 1: جستجوی تگ source
+          sources = soup.find_all('source')
+          for source in sources:
+              src = source.get('src', '')
+              if '.mp4' in src and quality in src:
+                  video_url = src
+                  break
+          
+          # روش 2: جستجوی الگوهای iframe
+          if not video_url:
+              iframes = soup.find_all('iframe')
+              for iframe in iframes:
+                  src = iframe.get('src', '')
+                  if 'hqporner' in src:
+                      # دریافت محتوای iframe
+                      iframe_resp = requests.get(src, headers=headers)
+                      iframe_soup = BeautifulSoup(iframe_resp.text, 'html.parser')
+                      vid_sources = iframe_soup.find_all('source')
+                      for vs in vid_sources:
+                          if '.mp4' in vs.get('src', ''):
+                              video_url = vs.get('src')
+                              break
+          
+          # روش 3: جستجوی مستقیم با regex
+          if not video_url:
+              patterns = [
+                  r'https?://[^\s"'\'']+\.mp4[^\s"'\'']*',
+                  r'videoSrc\s*[:=]\s*["'\'']([^"'\'']+)["'\'']',
+                  r'file\s*[:=]\s*["'\'']([^"'\'']+\.mp4[^"'\'']*)["'\'']'
+              ]
+              
+              for pattern in patterns:
+                  matches = re.findall(pattern, response.text)
+                  if matches:
+                      video_url = matches[0]
+                      break
+          
+          if not video_url:
+              print("❌ لینک ویدیو پیدا نشد")
+              exit(1)
+          
+          print(f"✅ لینک پیدا شد: {video_url}")
+          
+          # دانلود ویدیو
+          os.makedirs("videos", exist_ok=True)
+          filename = f"videos/video_{quality}p.mp4"
+          
+          cmd = f'wget --user-agent="Mozilla/5.0" --referer="https://hqporner.com/" -O "{filename}" "{video_url}"'
+          subprocess.run(cmd, shell=True, check=True)
+          
+          print(f"✅ دانلود شد: {filename}")
           EOF
       
-      - name: List downloaded files
-        id: files
-        run: |
-          ls -la videos/
-          echo "DOWNLOADED_FILES=$(ls videos/ | wc -l)" >> $GITHUB_OUTPUT
-      
-      - name: Commit and push to repository
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           
           git add videos/
-          git commit -m "🎬 Add downloaded video from hqporner [skip ci]" || echo "No new files to commit"
+          git commit -m "🎬 Add downloaded video" || echo "No changes"
           git push origin HEAD:${{ github.ref_name }}
-          
-          echo "✅ فایل در ریپازیتوری ذخیره شد"
