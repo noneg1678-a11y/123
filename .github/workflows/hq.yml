@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک ویدیو از hqporner.com'
+        description: 'لینک ویدیو از hqporner.com یا لینک مستقیم'
         required: true
       quality:
         description: 'کیفیت (480, 720, 1080)'
@@ -23,8 +23,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg wget
-          pip install requests beautifulsoup4
+          sudo apt-get install -y ffmpeg wget curl
+          pip install requests beautifulsoup4 re
       
       - name: Extract and download video
         run: |
@@ -33,63 +33,71 @@ jobs:
           import re
           import subprocess
           import os
+          import sys
+          from urllib.parse import urlparse
           from bs4 import BeautifulSoup
           
           url = "${{ github.event.inputs.url }}"
           quality = "${{ github.event.inputs.quality }}"
           
-          # دریافت محتوای صفحه
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Referer': 'https://hqporner.com/'
-          }
-          
-          response = requests.get(url, headers=headers)
-          soup = BeautifulSoup(response.text, 'html.parser')
-          
-          # جستجوی لینک ویدیو در صفحه (الگوهای مختلف)
-          video_url = None
-          
-          # روش 1: جستجوی تگ source
-          sources = soup.find_all('source')
-          for source in sources:
-              src = source.get('src', '')
-              if '.mp4' in src and quality in src:
-                  video_url = src
-                  break
-          
-          # روش 2: جستجوی الگوهای iframe
-          if not video_url:
+          # بررسی اگر لینک مستقیم mp4 باشد
+          if url.endswith('.mp4') or 'bigcdn.cc' in url or '.mp4' in url:
+              video_url = url
+              print(f"✅ لینک مستقیم تشخیص داده شد: {video_url}")
+          else:
+              # دریافت محتوای صفحه
+              headers = {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Referer': 'https://hqporner.com/'
+              }
+              
+              response = requests.get(url, headers=headers)
+              soup = BeautifulSoup(response.text, 'html.parser')
+              
+              video_url = None
+              
+              # جستجوی لینک با کیفیت مشخص
+              # روش 1: جستجوی در iframe ها
               iframes = soup.find_all('iframe')
               for iframe in iframes:
                   src = iframe.get('src', '')
-                  if 'hqporner' in src:
-                      # دریافت محتوای iframe
-                      iframe_resp = requests.get(src, headers=headers)
-                      iframe_soup = BeautifulSoup(iframe_resp.text, 'html.parser')
-                      vid_sources = iframe_soup.find_all('source')
-                      for vs in vid_sources:
-                          if '.mp4' in vs.get('src', ''):
-                              video_url = vs.get('src')
-                              break
-          
-          # روش 3: جستجوی مستقیم با regex
-          if not video_url:
-              patterns = [
-                  r'https?://[^\s"'\'']+\.mp4[^\s"'\'']*',
-                  r'videoSrc\s*[:=]\s*["'\'']([^"'\'']+)["'\'']',
-                  r'file\s*[:=]\s*["'\'']([^"'\'']+\.mp4[^"'\'']*)["'\'']'
-              ]
+                  if 'hqporner' in src or 'embed' in src:
+                      try:
+                          iframe_resp = requests.get(src, headers=headers)
+                          # جستجوی لینک mp4 در iframe
+                          mp4_pattern = r'https?://[^\s"'\'']+\.mp4[^\s"'\'']*'
+                          matches = re.findall(mp4_pattern, iframe_resp.text)
+                          if matches:
+                              for match in matches:
+                                  if f'/{quality}/' in match or f'{quality}p' in match:
+                                      video_url = match
+                                      break
+                              if not video_url and matches:
+                                  video_url = matches[0]
+                              if video_url:
+                                  break
+                      except:
+                          pass
               
-              for pattern in patterns:
-                  matches = re.findall(pattern, response.text)
-                  if matches:
-                      video_url = matches[0]
-                      break
+              # روش 2: جستجوی مستقیم در صفحه اصلی
+              if not video_url:
+                  patterns = [
+                      rf'https?://[^\s"'\'']+{quality}[^\s"'\'']*\.mp4[^\s"'\'']*',
+                      rf'https?://[^\s"'\'']+{quality}p[^\s"'\'']*\.mp4[^\s"'\'']*',
+                      r'https?://[^\s"'\'']+bigcdn[^\s"'\'']+\.mp4[^\s"'\'']*',
+                      r'file\s*[:=]\s*["'\'']([^"'\'']+\.mp4[^"'\'']*)["'\'']',
+                  ]
+                  
+                  for pattern in patterns:
+                      matches = re.findall(pattern, response.text)
+                      if matches:
+                          video_url = matches[0]
+                          break
           
           if not video_url:
               print("❌ لینک ویدیو پیدا نشد")
-              exit(1)
+              print("⚠️ می‌توانید مستقیماً لینک فایل mp4 را وارد کنید")
+              sys.exit(1)
           
           print(f"✅ لینک پیدا شد: {video_url}")
           
@@ -97,10 +105,30 @@ jobs:
           os.makedirs("videos", exist_ok=True)
           filename = f"videos/video_{quality}p.mp4"
           
-          cmd = f'wget --user-agent="Mozilla/5.0" --referer="https://hqporner.com/" -O "{filename}" "{video_url}"'
-          subprocess.run(cmd, shell=True, check=True)
+          # دانلود با wget و هدرهای مناسب
+          download_cmd = f'wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --referer="https://hqporner.com/" --header="Origin: https://hqporner.com" -O "{filename}" "{video_url}"'
           
-          print(f"✅ دانلود شد: {filename}")
+          result = subprocess.run(download_cmd, shell=True, capture_output=True, text=True)
+          
+          if result.returncode != 0:
+              print(f"❌ خطا در دانلود: {result.stderr}")
+              # تلاش با curl
+              curl_cmd = f'curl -L -H "User-Agent: Mozilla/5.0" -H "Referer: https://hqporner.com/" -o "{filename}" "{video_url}"'
+              subprocess.run(curl_cmd, shell=True, check=True)
+          
+          # بررسی حجم فایل
+          if os.path.exists(filename) and os.path.getsize(filename) > 1000000:  # بزرگتر از 1MB
+              print(f"✅ دانلود شد: {filename} (سایز: {os.path.getsize(filename) / 1024 / 1024:.2f} MB)")
+              
+              # دریافت اطلاعات ویدیو با ffmpeg
+              info_cmd = f'ffmpeg -i "{filename}" 2>&1 | grep "Duration\|Video"'
+              subprocess.run(info_cmd, shell=True)
+          else:
+              print(f"❌ فایل دانلود شده معتبر نیست یا خیلی کوچک است")
+              if os.path.exists(filename):
+                  os.remove(filename)
+              sys.exit(1)
+          
           EOF
       
       - name: Commit and push
@@ -108,6 +136,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           
-          git add videos/
-          git commit -m "🎬 Add downloaded video" || echo "No changes"
-          git push origin HEAD:${{ github.ref_name }}
+          # فقط اگر فایل وجود داشت commit کن
+          if [ -f videos/*.mp4 ] 2>/dev/null; then
+            git add videos/
+            git commit -m "🎬 Add downloaded video" || echo "No changes"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "⚠️ فایل ویدیویی برای commit وجود ندارد"
+          fi
